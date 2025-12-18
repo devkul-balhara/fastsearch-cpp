@@ -1,0 +1,10 @@
+# binaries
+fastsearch
+*.out
+a.out
+
+# OS files
+.DS_Store
+
+# VS Code
+.vscode/
