@@ -1,10 +1,14 @@
 # binaries
 fastsearch
+main
 *.out
 a.out
 
-# OS files
+# macOS
 .DS_Store
+
+# data files
+data/*.txt
 
 # VS Code
 .vscode/
