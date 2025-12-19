@@ -118,7 +118,7 @@ class SearchEngine {
         string word;
         int totalWords = 0;
         unordered_map<string, int> termFreq; 
-        unordered_set<string> uniqueTerms; // CRITICAL FIX 1: Avoid duplicate Trie inserts
+        unordered_set<string> uniqueTerms; // Insert each term once into Trie to reduce memory and traversal overhead
 
         while (file >> word) {
             string clean = normalize(word);
@@ -182,7 +182,7 @@ class SearchEngine {
         // B. Multi-term Intersection & Scoring
         // Map: DocID -> Score
         unordered_map<int, double> docScores;
-        unordered_map<int, int> docMatchCount; // CRITICAL FIX 3: Count matches for AND logic
+        unordered_map<int, int> docMatchCount; // Count matched query terms per document
 
         for (const string& token : tokens) {
             if (invertedIndex.find(token) == invertedIndex.end()) {
@@ -196,7 +196,7 @@ class SearchEngine {
                 int docId = entry.first;
                 int tf = entry.second;
                 
-                // CRITICAL FIX 2: Length Normalization
+                // Normalize term frequency by document length to prevent long-document bias
                 double tfNorm = (double)tf / documents[docId].wordCount;
                 double score = tfNorm * idf;
 
