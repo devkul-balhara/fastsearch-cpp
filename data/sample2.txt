@@ -1,0 +1,4 @@
+data structures like trie and hash maps are useful
+inverted index maps words to documents for fast search
+search systems need optimization for speed and accuracy
+fast systems reduce search time and improve performance

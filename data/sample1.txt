@@ -1,0 +1,4 @@
+fast search engines use inverted index and trie data structure
+trie helps in prefix based searching
+search engines like google use advanced indexing techniques
+fast retrieval of data is important in search systems
