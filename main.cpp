@@ -1,264 +1,190 @@
 #include <bits/stdc++.h>
+#include <filesystem>
 using namespace std;
-
 namespace fs = filesystem;
 
-// --- CONFIG & COLORS ---
-const string RED = "\033[1;31m";
-const string GREEN = "\033[1;32m";
-const string BLUE = "\033[1;34m";
-const string GRAY = "\033[90m";
-const string RESET = "\033[0m";
-
-const unordered_set<string> STOPWORDS = {
-    "the", "is", "at", "which", "on", "and", "a", "an", "in", "to", "of", "for", "it", "that", "this", "are", "with", "as", "by"
-};
-
-// --- DATA STRUCTURES ---
-
-class TrieNode{
-    public:
+// Trie for prefix-based autocomplete suggestions
+struct TrieNode {
     unordered_map<char, TrieNode*> children;
-    bool isEndOfWord = false;
+    bool isEnd = false;
 };
 
-class Trie{
+class Trie {
     TrieNode* root;
 
-    public:
-    Trie() {root = new TrieNode();}
+public:
+    Trie() {
+        root = new TrieNode();
+    }
 
-    void insert(const string& word){
-        TrieNode* curr = root;
+    void insert(const string& word) {
+        TrieNode* node = root;
         for (char c : word) {
-            if (curr->children.find(c) == curr->children.end())
-                curr->children[c] = new TrieNode();
-            curr = curr->children[c];
+            if (!node->children[c])
+                node->children[c] = new TrieNode();
+            node = node->children[c];
         }
-        curr->isEndOfWord = true;
+        node->isEnd = true;
     }
 
-    void findWords(TrieNode* node, string prefix, vector<string>& results) {
-        if (results.size() >= 3) return; 
-        if (node->isEndOfWord) results.push_back(prefix);
-        for (auto& pair : node->children) {
-            findWords(pair.second, prefix + pair.first, results);
+    void dfs(TrieNode* node, string prefix, vector<string>& res) {
+        if (node->isEnd) res.push_back(prefix);
+        for (auto& [ch, child] : node->children) {
+            dfs(child, prefix + ch, res);
         }
     }
 
-    vector<string> suggest(const string& prefix) {
-        TrieNode* curr = root;
-        vector<string> results;
+    // Return words matching given prefix
+    vector<string> getSuggestions(string prefix) {
+        TrieNode* node = root;
         for (char c : prefix) {
-            if (curr->children.find(c) == curr->children.end()) return results;
-            curr = curr->children[c];
+            if (!node->children[c]) return {};
+            node = node->children[c];
         }
-        findWords(curr, prefix, results);
-        return results;
+
+        vector<string> res;
+        dfs(node, prefix, res);
+        sort(res.begin(), res.end());
+        return res;
     }
 };
 
-class DocInfo{
-    public:
-    int id;
-    string filepath;
-    string filename;
-    int wordCount; // For Length Normalization
-};
-
+// ---------------- SEARCH ENGINE ----------------
 class SearchEngine {
-    unordered_map<string, vector<pair<int, int>>> invertedIndex; // Term -> [(DocID, Frequency)]
-    unordered_map<int, DocInfo> documents;
-    Trie prefixTrie;
-    int docCounter = 0;
+    // Inverted Index: word -> (document -> frequency)
+    unordered_map<string, unordered_map<string, int>> invertedIndex;
+    unordered_map<string, unordered_map<string, int>> wordFreq;
 
-    string normalize(string word) {
-        string clean = "";
-        for (char c : word) {
-            if (isalnum(c)) clean += tolower(c);
-        }
-        return clean;
-    }
+    unordered_map<string, string> fileContent;
+    Trie trie;
 
-    vector<string> tokenize(const string& query) {
-        stringstream ss(query);
-        string word;
-        vector<string> tokens;
-        while (ss >> word) {
-            string clean = normalize(word);
-            if (!clean.empty() && STOPWORDS.find(clean) == STOPWORDS.end()) {
-                tokens.push_back(clean);
-            }
-        }
-        return tokens;
-    }
+public:
+    void indexFiles(const string& path) {
+        cout << "\nIndexing files from: " << path << "...\n";
 
-    public:
-    void indexDirectory(const string& dirPath) {
-        cout << GRAY << "[System] Indexing documents in " << dirPath << "..." << RESET << endl;
-        if (!fs::exists(dirPath)) {
-            cout << RED << "Error: Directory not found." << RESET << endl;
-            return;
-        }
-        for (const auto& entry : fs::directory_iterator(dirPath)) {
-            if (entry.path().extension() == ".txt") {
-                indexFile(entry.path().string());
-            }
-        }
-        cout << GREEN << "[System] Indexing complete. " << docCounter << " documents processed." << RESET << "\n";
-    }
+        for (const auto& entry : fs::directory_iterator(path)) {
+            ifstream file(entry.path());
+            if (!file.is_open()) continue;
 
-    void indexFile(const string& filepath) {
-        ifstream file(filepath);
-        if (!file.is_open()) return;
+            string filename = entry.path().filename();
+            string word, content;
 
-        int id = ++docCounter;
-        string filename = fs::path(filepath).filename().string();
-        
-        string word;
-        int totalWords = 0;
-        unordered_map<string, int> termFreq; 
-        unordered_set<string> uniqueTerms; // Insert each term once into Trie to reduce memory and traversal overhead
+            // Build index and insert into Trie
+            while (file >> word) {
+                for (auto& c : word) c = tolower(c);
 
-        while (file >> word) {
-            string clean = normalize(word);
-            if (clean.empty() || STOPWORDS.count(clean)) continue;
-            
-            termFreq[clean]++;
-            uniqueTerms.insert(clean);
-            totalWords++;
-        }
-        
-        documents[id] = {id, filepath, filename, totalWords};
+                invertedIndex[word][filename]++;
+                wordFreq[word][filename]++;
+                trie.insert(word);
 
-        // Update Trie only with unique terms
-        for (const string& term : uniqueTerms) {
-            prefixTrie.insert(term);
-        }
-
-        // Update Inverted Index
-        for (auto& entry : termFreq) {
-            invertedIndex[entry.first].push_back({id, entry.second});
-        }
-    }
-
-    void showSnippet(const string& filepath, const string& queryTerm) {
-        ifstream file(filepath);
-        string word, clean;
-        vector<string> buffer;
-        bool found = false;
-
-        while (file >> word) {
-            clean = normalize(word);
-            buffer.push_back(word);
-            if (buffer.size() > 15) buffer.erase(buffer.begin()); 
-
-            if (clean == queryTerm && !found) {
-                found = true;
-                cout << "   ... ";
-                for (size_t i = 0; i < buffer.size() - 1; i++) cout << buffer[i] << " ";
-                cout << RED << word << RESET << " "; 
-                for (int i = 0; i < 5 && (file >> word); i++) cout << word << " ";
-                cout << "..." << endl;
-                return;
-            }
-        }
-    }
-
-    void search(const string& rawQuery) {
-        vector<string> tokens = tokenize(rawQuery);
-        if (tokens.empty()) return;
-
-        // A. Autocomplete (based on last token if only one exists, or simply first)
-        if (tokens.size() == 1) {
-             vector<string> suggestions = prefixTrie.suggest(tokens[0]);
-             if (!suggestions.empty() && suggestions[0] != tokens[0]) {
-                 cout << BLUE << "Did you mean? " << RESET;
-                 for (const auto& s : suggestions) cout << s << " ";
-                 cout << "\n";
-             }
-        }
-
-        // B. Multi-term Intersection & Scoring
-        // Map: DocID -> Score
-        unordered_map<int, double> docScores;
-        unordered_map<int, int> docMatchCount; // Count matched query terms per document
-
-        for (const string& token : tokens) {
-            if (invertedIndex.find(token) == invertedIndex.end()) {
-                cout << GRAY << "No exact matches for term: " << token << RESET << "\n";
-                continue; 
+                content += word + " ";
             }
 
-            double idf = log10((double)docCounter / (1 + invertedIndex[token].size()));
-
-            for (auto& entry : invertedIndex[token]) {
-                int docId = entry.first;
-                int tf = entry.second;
-                
-                // Normalize term frequency by document length to prevent long-document bias
-                double tfNorm = (double)tf / documents[docId].wordCount;
-                double score = tfNorm * idf;
-
-                docScores[docId] += score;
-                docMatchCount[docId]++;
-            }
+            fileContent[filename] = content;
         }
 
-        // Filter: Strict AND (Intersection) - Doc must contain ALL valid tokens
-        vector<pair<double, int>> finalResults;
-        int requiredMatches = 0;
-        // Count how many tokens actually exist in our index to determine required matches
-        for(const auto& t : tokens) if(invertedIndex.count(t)) requiredMatches++;
+        cout << "Indexing completed.\n";
+    }
 
-        if (requiredMatches == 0) {
-            cout << "No documents found matching query." << endl;
+    // Extract small context around first occurrence
+    string getSnippet(const string& content, const string& word) {
+        size_t pos = content.find(word);
+        if (pos == string::npos) return "";
+
+        int start = max(0, (int)pos - 20);
+        int end = min((int)content.size(), (int)pos + 40);
+
+        return "... " + content.substr(start, end - start) + " ...";
+    }
+
+    void search(string query) {
+        for (auto& c : query) c = tolower(c);
+
+        cout << "\n============================\n";
+        cout << " Results for: \"" << query << "\"\n";
+        cout << "============================\n";
+
+        if (invertedIndex.find(query) == invertedIndex.end()) {
+            cout << "No results found.\n";
             return;
         }
 
-        for (auto& entry : docScores) {
-            if (docMatchCount[entry.first] == requiredMatches) {
-                finalResults.push_back({entry.second, entry.first});
-            }
+        int totalDocs = fileContent.size();
+        int docsWithWord = invertedIndex[query].size();
+
+        cout << docsWithWord << " result(s) found\n\n";
+
+        int i = 1;
+        for (auto& [file, freq] : invertedIndex[query]) {
+
+            // Simplified TF-IDF scoring
+            double tf = wordFreq[query][file];
+            double idf = log((double)totalDocs / (1 + docsWithWord));
+            double score = tf * idf;
+
+            cout << i++ << ") " << file << "\n";
+            cout << "   Score : " << fixed << setprecision(4) << score << "\n";
+            cout << "   Freq  : " << freq << "\n";
+            cout << "   Match : " << getSnippet(fileContent[file], query) << "\n";
+            cout << "\n";
+        }
+    }
+
+    void suggest(string prefix) {
+        for (auto& c : prefix) c = tolower(c);
+
+        auto suggestions = trie.getSuggestions(prefix);
+
+        cout << "\n============================\n";
+        cout << " Suggestions for: \"" << prefix << "\"\n";
+        cout << "============================\n";
+
+        if (suggestions.empty()) {
+            cout << "No suggestions found.\n";
+            return;
         }
 
-        sort(finalResults.rbegin(), finalResults.rend()); 
-
-        // C. Display Results
-        cout << "\nResults for '" << RED << rawQuery << RESET << "' (" << finalResults.size() << " hits):\n";
-        int rank = 1;
-        for (auto& res : finalResults) {
-            if (rank > 3) break; 
-            DocInfo& doc = documents[res.second];
-            
-            cout << rank++ << ". " << GREEN << doc.filename << RESET 
-                 << " (Score: " << fixed << setprecision(4) << res.first << ")\n";
-            
-            // Show snippet for the first token found
-            showSnippet(doc.filepath, tokens[0]);
-            cout << GRAY << "-----------------------------------" << RESET << "\n";
+        for (const auto& word : suggestions) {
+            cout << "- " << word << "\n";
         }
-        cout << endl;
+        
+        cout << "\n";
     }
 };
 
+// ---------------- MAIN ----------------
 int main() {
     SearchEngine engine;
-    
-    if (!fs::exists("data")) {
-        fs::create_directory("data");
-        cout << RED << "Created 'data' folder. Add .txt files and restart!" << RESET << endl;
-        return 0;
-    }
 
-    engine.indexDirectory("data");
+    string path = "data"; // local dataset folder
+    engine.indexFiles(path);
 
-    string query;
     while (true) {
-        cout << "Search > ";
-        getline(cin, query);
-        if (query == "exit") break;
-        engine.search(query);
+        cout << "\n=========== MENU ===========\n";
+        cout << "1) Search\n";
+        cout << "2) Suggest\n";
+        cout << "3) Exit\n";
+        cout << "============================\n";
+        cout << "\nEnter choice: ";
+
+        int choice;
+        cin >> choice;
+
+        if (choice == 1) {
+            string query;
+            cout << "\nEnter word: ";
+            cin >> query;
+            engine.search(query);
+        }
+        else if (choice == 2) {
+            string prefix;
+            cout << "\nEnter prefix: ";
+            cin >> prefix;
+            engine.suggest(prefix);
+        }
+        else {
+            cout << "\nExiting...\n\n";
+            break;
+        }
     }
-    return 0;
 }
