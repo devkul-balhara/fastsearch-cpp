@@ -1,6 +1,7 @@
 #include <bits/stdc++.h>
+#include <experimental/filesystem>
 using namespace std;
-namespace fs = filesystem;
+namespace fs = experimental::filesystem;
 
 // Trie for prefix-based autocomplete (O(L) lookup)
 struct TrieNode {
