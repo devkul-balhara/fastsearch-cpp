@@ -1,7 +1,3 @@
-Got it. I've updated the folder structure to include your `.gitignore` and ensured all the complexity notation uses backticks rather than LaTeX symbols so it displays correctly on GitHub.
-
-Here is the final text for your `README.md`:
-
 # fastsearch-cpp — In-Memory Search Engine (C++17)
 
 fastsearch-cpp is a high-performance, in-memory search engine built in C++17. It implements core Information Retrieval (IR) techniques with an emphasis on efficient query execution, ranking, and system-level trade-offs.
