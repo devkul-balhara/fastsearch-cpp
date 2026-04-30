@@ -1,0 +1,2 @@
+A robotic rover requires complex algorithms to navigate.
+Modern spacecraft use advanced technology.
