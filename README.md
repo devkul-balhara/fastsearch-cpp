@@ -1,3 +1,7 @@
+Ah, it looks like GitHub is trying to be helpful by collapsing the directory tree into a single line because it doesn't recognize it as a code block. To fix that "jumbled" look, we need to wrap the structure in a code block using triple backticks.
+
+Here is the final, corrected text to copy into your `README.md`:
+
 # fastsearch-cpp — In-Memory Search Engine (C++17)
 
 fastsearch-cpp is a high-performance, in-memory search engine built in C++17. It implements core Information Retrieval (IR) techniques with an emphasis on efficient query execution, ranking, and system-level trade-offs.
@@ -65,24 +69,26 @@ fastsearch-cpp is a high-performance, in-memory search engine built in C++17. It
 
 ### Project Structure
 
+```text
 fastsearch-cpp/
 ├── data/           # Source text files for indexing
 ├── .gitignore      # Git exclusion rules
 ├── main.cpp        # Search Engine Logic
 └── README.md       # Project documentation
+```
 
 ### Build & Run
 
 Ensure you have a compiler that supports C++17.
 
 1. Navigate to the project directory:
-   cd fastsearch-cpp
+   `cd fastsearch-cpp`
 
 2. Compile with O2 optimization:
-   g++ -std=c++17 -O2 -o main main.cpp
+   `g++ -std=c++17 -O2 -o main main.cpp`
 
 3. Run the engine:
-   ./main
+   `./main`
 
 ---
 
@@ -110,4 +116,4 @@ Future Roadmap:
 
 ---
 
-fastsearch-cpp demonstrates how modern search systems balance latency, memory, and accuracy using layered indexing and ranking strategies.
+**fastsearch-cpp demonstrates how modern search systems balance latency, memory, and accuracy using layered indexing and ranking strategies.**
