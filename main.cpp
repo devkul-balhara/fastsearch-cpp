@@ -2,7 +2,9 @@
 using namespace std;
 namespace fs = filesystem;
 
-// Trie for prefix-based autocomplete (O(L) lookup)
+// ==========================================
+// 1. TRIE DATA STRUCTURE (For Autocomplete)
+// ==========================================
 struct TrieNode {
     unordered_map<char, TrieNode*> children;
     bool isEnd = false;
@@ -26,7 +28,6 @@ public:
         node->isEnd = true;
     }
 
-    // Collect all words under prefix
     void dfs(TrieNode* node, string prefix, vector<string>& res) {
         if (node->isEnd) res.push_back(prefix);
         for (auto& [ch, child] : node->children) {
@@ -48,19 +49,26 @@ public:
     }
 };
 
+// ==========================================
+// 2. SEARCH ENGINE CORE
+// ==========================================
 class SearchEngine {
-
-    // word → {document → frequency}
     unordered_map<string, unordered_map<string, int>> invertedIndex;
-
-    // used for TF calculation (redundant but kept for clarity)
-    unordered_map<string, unordered_map<string, int>> wordFreq;
-
-    unordered_map<string, string> fileContent;
+    unordered_map<string, string> fileContent; 
     Trie trie;
 
-public:
+    // Helper function to remove punctuation and hidden chars (like \r)
+    string cleanToken(const string& word) {
+        string clean = "";
+        for (char c : word) {
+            if (isalnum(c)) {
+                clean += tolower(c);
+            }
+        }
+        return clean;
+    }
 
+public:
     void indexFiles(const string& path) {
         cout << "\nIndexing files from: " << path << "...\n";
 
@@ -70,17 +78,21 @@ public:
 
             string filename = entry.path().filename();
             string word, content;
+            unordered_set<string> uniqueWords;
 
-            unordered_set<string> uniqueWords; // avoid duplicate Trie insertions
+            string line;
+            while (getline(file, line)) {
+                content += line + " ";
+                stringstream ss(line);
+                
+                while (ss >> word) {
+                    // Clean the word of punctuation before indexing
+                    string cleanedWord = cleanToken(word);
+                    if (cleanedWord.empty()) continue;
 
-            while (file >> word) {
-                for (auto& c : word) c = tolower(c);
-
-                invertedIndex[word][filename]++;
-                wordFreq[word][filename]++;
-                uniqueWords.insert(word);
-
-                content += word + " ";
+                    invertedIndex[cleanedWord][filename]++;
+                    uniqueWords.insert(cleanedWord);
+                }
             }
 
             for (const auto& w : uniqueWords) {
@@ -89,67 +101,101 @@ public:
 
             fileContent[filename] = content;
         }
-
         cout << "Indexing completed.\n";
     }
 
-    string getSnippet(const string& content, const string& word) {
-        size_t pos = content.find(word);
-        if (pos == string::npos) return "";
-
-        int start = max(0, (int)pos - 20);
-        int end = min((int)content.size(), (int)pos + 40);
-
-        return "... " + content.substr(start, end - start) + " ...";
-    }
-
-    // Supports single-term queries only
-    void search(string query) {
-        for (auto& c : query) c = tolower(c);
-
+    void search(string query, bool exactMatch) {
         cout << "\n============================\n";
         cout << " Results for: \"" << query << "\"\n";
+        cout << " Mode: " << (exactMatch ? "Exact Match" : "Normal Search") << "\n";
         cout << "============================\n";
 
-        if (invertedIndex.find(query) == invertedIndex.end()) {
-            cout << "No results found.\n";
+        // --- STEP 1: TOKENIZATION & CLEANING ---
+        vector<string> lowerTerms;
+        stringstream ss(query);
+        string term;
+        while (ss >> term) {
+            string cleanedTerm = cleanToken(term);
+            if (!cleanedTerm.empty()) {
+                lowerTerms.push_back(cleanedTerm);
+            }
+        }
+
+        if (lowerTerms.empty()) {
+            cout << "0 result(s) found.\n";
             return;
         }
 
-        int totalDocs = fileContent.size();
-        int docsWithWord = invertedIndex[query].size();
-
-        cout << docsWithWord << " result(s) found\n\n";
-
-        vector<pair<double, pair<string, int>>> results;
-
-        for (auto& [file, freq] : invertedIndex[query]) {
-            double tf = wordFreq[query][file];
-            double idf = log((double)totalDocs / (1 + docsWithWord)); // simplified IDF
-            double score = tf * idf;
-
-            results.push_back({score, {file, freq}});
+        for (const string& t : lowerTerms) {
+            if (invertedIndex.find(t) == invertedIndex.end()) {
+                cout << "0 result(s) found.\n";
+                return;
+            }
         }
 
-        // rank by relevance
+        // --- STEP 2: POSTING LIST INTERSECTION ---
+        unordered_set<string> validDocs;
+        for (auto& [doc, freq] : invertedIndex[lowerTerms[0]]) {
+            validDocs.insert(doc);
+        }
+
+        for (size_t i = 1; i < lowerTerms.size(); i++) {
+            unordered_set<string> nextDocs;
+            for (auto& [doc, freq] : invertedIndex[lowerTerms[i]]) {
+                if (validDocs.count(doc)) {
+                    nextDocs.insert(doc); 
+                }
+            }
+            validDocs = nextDocs;
+        }
+
+        // --- STEP 3: SCORING & EXACT MATCH VERIFICATION ---
+        int totalDocs = fileContent.size();
+        vector<pair<double, string>> results;
+
+        for (const string& doc : validDocs) {
+            if (exactMatch) {
+                if (fileContent[doc].find(query) == string::npos) {
+                    continue; 
+                }
+            }
+
+            double totalScore = 0;
+            for (const string& t : lowerTerms) {
+                double tf = invertedIndex[t][doc];
+                int docsWithWord = invertedIndex[t].size();
+                
+                double idf = log((double)totalDocs / (1 + docsWithWord)); 
+                totalScore += (tf * idf);
+            }
+
+            results.push_back({totalScore, doc});
+        }
+
         sort(results.rbegin(), results.rend());
 
-        int i = 1;
-        for (auto& [score, data] : results) {
-            auto& [file, freq] = data;
+        if (results.empty()) {
+            cout << "0 result(s) found.\n";
+            return;
+        }
 
+        cout << results.size() << " result(s) found\n\n";
+
+        int i = 1;
+        for (auto& [score, file] : results) {
             cout << i++ << ") " << file << "\n";
-            cout << "   Score : " << fixed << setprecision(4) << score << "\n";
-            cout << "   Freq  : " << freq << "\n";
-            cout << "   Match : " << getSnippet(fileContent[file], query) << "\n";
-            cout << "\n";
+            cout << "   Score : " << fixed << setprecision(4) << score << "\n\n";
         }
     }
 
     void suggest(string prefix) {
-        for (auto& c : prefix) c = tolower(c);
+        string cleanedPrefix = cleanToken(prefix);
+        if (cleanedPrefix.empty()) {
+            cout << "No suggestions found.\n";
+            return;
+        }
 
-        auto suggestions = trie.getSuggestions(prefix);
+        auto suggestions = trie.getSuggestions(cleanedPrefix);
 
         cout << "\n============================\n";
         cout << " Suggestions for: \"" << prefix << "\"\n";
@@ -163,22 +209,25 @@ public:
         for (const auto& word : suggestions) {
             cout << "- " << word << "\n";
         }
-
         cout << "\n";
     }
 };
 
+// ==========================================
+// 3. MAIN CLI MENU
+// ==========================================
 int main() {
     SearchEngine engine;
-
-    string path = "data";
+    
+    string path = "data"; 
     engine.indexFiles(path);
 
     while (true) {
         cout << "\n=========== MENU ===========\n";
-        cout << "1) Search\n";
-        cout << "2) Suggest\n";
-        cout << "3) Exit\n";
+        cout << "1) Normal Search (Case-Insensitive)\n";
+        cout << "2) Exact Match Search (Case-Sensitive)\n";
+        cout << "3) Suggest Auto-complete\n";
+        cout << "4) Exit\n";
         cout << "============================\n";
         cout << "\nEnter choice: ";
 
@@ -187,11 +236,21 @@ int main() {
 
         if (choice == 1) {
             string query;
-            cout << "\nEnter word (single term): ";
-            cin >> query;
-            engine.search(query);
+            cout << "\nEnter search query: ";
+            cin.ignore(); 
+            getline(cin, query); 
+            
+            engine.search(query, false); 
         }
         else if (choice == 2) {
+            string query;
+            cout << "\nEnter exact phrase to match: ";
+            cin.ignore();
+            getline(cin, query);
+            
+            engine.search(query, true); 
+        }
+        else if (choice == 3) {
             string prefix;
             cout << "\nEnter prefix: ";
             cin >> prefix;
@@ -202,4 +261,5 @@ int main() {
             break;
         }
     }
+    return 0;
 }
