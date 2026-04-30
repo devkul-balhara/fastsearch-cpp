@@ -3,7 +3,7 @@
 using namespace std;
 namespace fs = filesystem;
 
-// Trie for prefix-based autocomplete suggestions
+// Trie for prefix-based autocomplete (O(L) lookup)
 struct TrieNode {
     unordered_map<char, TrieNode*> children;
     bool isEnd = false;
@@ -27,6 +27,7 @@ public:
         node->isEnd = true;
     }
 
+    // Collect all words under prefix
     void dfs(TrieNode* node, string prefix, vector<string>& res) {
         if (node->isEnd) res.push_back(prefix);
         for (auto& [ch, child] : node->children) {
@@ -34,7 +35,6 @@ public:
         }
     }
 
-    // Return words matching given prefix
     vector<string> getSuggestions(string prefix) {
         TrieNode* node = root;
         for (char c : prefix) {
@@ -49,16 +49,19 @@ public:
     }
 };
 
-// ---------------- SEARCH ENGINE ----------------
 class SearchEngine {
-    // Inverted Index: word -> (document -> frequency)
+
+    // word → {document → frequency}
     unordered_map<string, unordered_map<string, int>> invertedIndex;
+
+    // used for TF calculation (redundant but kept for clarity)
     unordered_map<string, unordered_map<string, int>> wordFreq;
 
     unordered_map<string, string> fileContent;
     Trie trie;
 
 public:
+
     void indexFiles(const string& path) {
         cout << "\nIndexing files from: " << path << "...\n";
 
@@ -69,15 +72,20 @@ public:
             string filename = entry.path().filename();
             string word, content;
 
-            // Build index and insert into Trie
+            unordered_set<string> uniqueWords; // avoid duplicate Trie insertions
+
             while (file >> word) {
                 for (auto& c : word) c = tolower(c);
 
                 invertedIndex[word][filename]++;
                 wordFreq[word][filename]++;
-                trie.insert(word);
+                uniqueWords.insert(word);
 
                 content += word + " ";
+            }
+
+            for (const auto& w : uniqueWords) {
+                trie.insert(w);
             }
 
             fileContent[filename] = content;
@@ -86,7 +94,6 @@ public:
         cout << "Indexing completed.\n";
     }
 
-    // Extract small context around first occurrence
     string getSnippet(const string& content, const string& word) {
         size_t pos = content.find(word);
         if (pos == string::npos) return "";
@@ -97,6 +104,7 @@ public:
         return "... " + content.substr(start, end - start) + " ...";
     }
 
+    // Supports single-term queries only
     void search(string query) {
         for (auto& c : query) c = tolower(c);
 
@@ -114,13 +122,22 @@ public:
 
         cout << docsWithWord << " result(s) found\n\n";
 
-        int i = 1;
-        for (auto& [file, freq] : invertedIndex[query]) {
+        vector<pair<double, pair<string, int>>> results;
 
-            // Simplified TF-IDF scoring
+        for (auto& [file, freq] : invertedIndex[query]) {
             double tf = wordFreq[query][file];
-            double idf = log((double)totalDocs / (1 + docsWithWord));
+            double idf = log((double)totalDocs / (1 + docsWithWord)); // simplified IDF
             double score = tf * idf;
+
+            results.push_back({score, {file, freq}});
+        }
+
+        // rank by relevance
+        sort(results.rbegin(), results.rend());
+
+        int i = 1;
+        for (auto& [score, data] : results) {
+            auto& [file, freq] = data;
 
             cout << i++ << ") " << file << "\n";
             cout << "   Score : " << fixed << setprecision(4) << score << "\n";
@@ -147,16 +164,15 @@ public:
         for (const auto& word : suggestions) {
             cout << "- " << word << "\n";
         }
-        
+
         cout << "\n";
     }
 };
 
-// ---------------- MAIN ----------------
 int main() {
     SearchEngine engine;
 
-    string path = "data"; // local dataset folder
+    string path = "data";
     engine.indexFiles(path);
 
     while (true) {
@@ -172,7 +188,7 @@ int main() {
 
         if (choice == 1) {
             string query;
-            cout << "\nEnter word: ";
+            cout << "\nEnter word (single term): ";
             cin >> query;
             engine.search(query);
         }
